@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Controllers;
@@ -9,6 +10,7 @@ using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -37,17 +39,12 @@ namespace Fragment
             var response = context.HttpContext.Response;
             var headers = response.Headers;
 
-            response.ContentType = "text/html";
+            headers.AddOrUpdateIfValue(HeaderNames.ContentType, "text/html");
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentSelector, Selector);
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentContentPosition, ContentPosition);
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentDelay, Delay?.TotalMilliseconds);
 
-            if (Selector != null) headers.Add("X-Fragment-Selector", Selector);
-
-            if (ContentPosition != null)
-                headers.Add("X-Fragment-ContentPosition", Enum.GetName(typeof(ContentPositions), ContentPosition.Value));
-
-            if (Delay != null) headers.Add("X-Fragment-Delay", Delay.Value.TotalMilliseconds.ToString());
-
-            if (ContentPosition.HasValue
-                && _contentPositionsWithoutBody.Contains(ContentPosition.Value))
+            if (ContentPosition.HasValue && _contentPositionsWithoutBody.Contains(ContentPosition.Value))
                 return;
 
             var controllerActionDescriptor = context.ActionDescriptor as ControllerActionDescriptor;
@@ -79,9 +76,9 @@ namespace Fragment
         }
     }
 
-    public abstract class AbstractContentFragment : IActionResult
+    public class ContentFragment : IActionResult
     {
-        protected abstract string ContentType { get; }
+        public string ContentType { get; set; }
         public Stream Content { get; set; }
         public string RawContent { get; set; }
         public string FilePath { get; set; }
@@ -91,75 +88,94 @@ namespace Fragment
 
         public async Task ExecuteResultAsync(ActionContext context)
         {
-            var contentSources = new object[] { Content, RawContent, FilePath }
+            var headers = context.HttpContext.Response.Headers;
+
+            headers.AddOrUpdateIfValue(HeaderNames.ContentType, ContentType);
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentSelector, Selector);
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentContentPosition, ContentPosition);
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentDelay, Delay?.TotalMilliseconds);
+
+            await ContentHelper.WriteContent(context.HttpContext, Content, RawContent, FilePath);
+        }
+    }
+
+    public class HtmlFragment : IActionResult
+    {
+        public string ContentType => "text/html";
+        public Stream Content { get; set; }
+        public string RawContent { get; set; }
+        public string FilePath { get; set; }
+        public string Selector { get; set; }
+        public ContentPositions? ContentPosition { get; set; }
+        public TimeSpan? Delay { get; set; }
+
+        public async Task ExecuteResultAsync(ActionContext context)
+        {
+            var headers = context.HttpContext.Response.Headers;
+
+            headers.AddOrUpdateIfValue(HeaderNames.ContentType, ContentType);
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentSelector, Selector);
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentContentPosition, ContentPosition);
+            headers.AddOrUpdateIfValue(FragmentHeaderNames.XFragmentDelay, Delay?.TotalMilliseconds);
+
+            await ContentHelper.WriteContent(context.HttpContext, Content, RawContent, FilePath);
+        }
+    }
+
+    public class JavascriptFragment : IActionResult
+    {
+        public string ContentType => "text/javascript";
+        public Stream Content { get; set; }
+        public string RawContent { get; set; }
+        public string FilePath { get; set; }
+
+        public async Task ExecuteResultAsync(ActionContext context)
+        {
+            var headers = context.HttpContext.Response.Headers;
+
+            headers.AddOrUpdateIfValue(HeaderNames.ContentType, ContentType);
+
+            await ContentHelper.WriteContent(context.HttpContext, Content, RawContent, FilePath);
+        }
+    }
+
+    internal static class ContentHelper
+    {
+        internal static async Task WriteContent(HttpContext httpContext, Stream content, string rawContent, string filePath)
+        {
+            var contentSources = new object[] { content, rawContent, filePath }
                 .Where(x => x != null)
                 .Count();
 
             if (contentSources > 1) throw new ArgumentException("More than one content source was specified");
 
-            var response = context.HttpContext.Response;
-            var headers = response.Headers;
+            var body = httpContext.Response.Body;
 
-            if (ContentType == null) throw new ArgumentNullException(nameof(ContentType));
-
-            response.ContentType = ContentType;
-
-            if (Selector != null) headers.Add("X-Fragment-Selector", Selector);
-
-            if (ContentPosition != null)
-                headers.Add("X-Fragment-ContentPosition", Enum.GetName(typeof(ContentPositions), ContentPosition.Value));
-
-            if (Delay != null) headers.Add("X-Fragment-Delay", Delay.Value.TotalMilliseconds.ToString());
-
-            if (Content != null)
+            if (content != null)
             {
-                Content.CopyToWithoutByteOrderMark(response.Body);
-                Content.Dispose();
+                content.CopyToWithoutByteOrderMark(body);
+                content.Dispose();
+                return;
             }
-            else if (RawContent != null)
+
+            if (rawContent != null)
             {
-                await response.Body.WriteAsync(Encoding.UTF8.GetBytes(RawContent).TrimByteOrderMark());
+                await body.WriteAsync(Encoding.UTF8.GetBytes(rawContent).TrimByteOrderMark());
+                return;
             }
-            else if (FilePath != null)
+
+            if (filePath != null)
             {
-                var services = context.HttpContext.RequestServices;
+                var services = httpContext.RequestServices;
                 var fileProvider = services.GetService<IFileProvider>()
                     ?? services.GetRequiredService<IWebHostEnvironment>().WebRootFileProvider;
-                
+
                 using var fileStream = fileProvider
-                    .GetFileInfo(FilePath)
+                    .GetFileInfo(filePath)
                     .CreateReadStream();
 
-                fileStream.CopyToWithoutByteOrderMark(response.Body);
+                fileStream.CopyToWithoutByteOrderMark(body);
             }
         }
-    }
-
-    public abstract class _ContentFragment : AbstractContentFragment
-    {
-        protected sealed override string ContentType => ContentTypeGetter;
-        protected abstract string ContentTypeGetter { get; }
-    }
-
-    public class ContentFragment : _ContentFragment
-    { 
-        private string _contentType;
-        public new virtual string ContentType
-        {
-            get => _contentType;
-            set => _contentType = value;
-        }
-
-        protected sealed override string ContentTypeGetter => ContentType;
-    }
-
-    public class HtmlFragment : AbstractContentFragment
-    {
-        protected override string ContentType => "text/html";
-    }
-
-    public class JavascriptFragment : AbstractContentFragment
-    {
-        protected override string ContentType => "text/javascript";
     }
 }

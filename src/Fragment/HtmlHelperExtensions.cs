@@ -14,7 +14,7 @@ namespace Fragment
         public static IHtmlContent RenderFragmentInitializationScripts(this IHtmlHelper htmlHelper)
         {
             // todo: add min file and split behavior on development
-
+            
             var fileInfo = App.ContentProvider.GetFileInfo("core.js");
             var version = fileInfo.GenerateHash();
 

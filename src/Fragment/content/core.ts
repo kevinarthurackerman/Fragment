@@ -99,16 +99,19 @@ window['fragment'] = {
                     targetElements.forEach(e => e.innerHTML = fragment.content);
                     break;
                 case 'BeforeContent':
-                    targetElements.forEach(e => e.innerHTML = fragment.content + e.innerHTML);
+                    targetElements.forEach(e => e.prepend(createNode(fragment.content)));
                     break;
                 case 'AfterContent':
-                    targetElements.forEach(e => e.innerHTML = e.innerHTML + fragment.content);
+                    targetElements.forEach(e => e.append(createNode(fragment.content)));
                     break;
                 default:
                     return config.onError(`Position '${fragment.position}' is not a valid position.`);
             }
         } else if (fragment.contentType === 'text/javascript') {
-            // todo: implement script insertion behavior
+            const scriptTag = document.createElement('script');
+            scriptTag.innerHTML = fragment.content;
+            document.body.append(scriptTag);
+            scriptTag.remove();
         }
     }
 

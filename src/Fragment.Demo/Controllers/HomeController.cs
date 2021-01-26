@@ -25,6 +25,7 @@ namespace Fragment.Demo.Controllers
         {
             return new FragmentedResult(
                 new JavascriptFragment { FilePath = "js/site.js" },
+                new JavascriptFragment { RawContent = "window.setTimeout(() => document.querySelectorAll('.home-partial').forEach(e => e.classList.add('text-success')), 4000)" },
                 new PartialFragment { ViewName = "_Partial", Model = "A", Selector = ".x", ContentPosition = ContentPositions.BeforeElement },
                 new PartialFragment { ViewName = "_Partial", Model = "B", Selector = ".x", Delay = TimeSpan.FromMilliseconds(500), ContentPosition = ContentPositions.AfterElement },
                 new PartialFragment { ViewName = "_Partial", Model = "C", Selector = ".x", Delay = TimeSpan.FromMilliseconds(1000), ContentPosition = ContentPositions.BeforeContent },
