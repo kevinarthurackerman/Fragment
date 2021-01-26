@@ -18,5 +18,14 @@ namespace Fragment
 
             return false;
         }
+
+        internal static string GetUrl(this HttpRequest httpRequest) =>
+            String.Concat(
+                httpRequest.Scheme,
+                "://",
+                httpRequest.Host.ToUriComponent(),
+                httpRequest.PathBase.ToUriComponent(),
+                httpRequest.Path.ToUriComponent(),
+                httpRequest.QueryString.ToUriComponent());
     }
 }

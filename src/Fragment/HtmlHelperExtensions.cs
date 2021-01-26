@@ -1,42 +1,30 @@
 ﻿using Microsoft.AspNetCore.Html;
-using Microsoft.Extensions.FileProviders;
-using System;
+using Microsoft.AspNetCore.Mvc.Rendering;
 using System.Collections.Generic;
 using System.IO;
-using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 
 namespace Fragment
 {
-    public static class HtmlHelper
+    public static class HtmlHelperExtensions
     {
-        public static IHtmlContent RenderScripts() =>
-            new MultiHtmlContent(RenderInitializationScripts(), RenderDynamicScriptsContainer());
+        public static IHtmlContent RenderFragmentScripts(this IHtmlHelper htmlHelper) =>
+            new MultiHtmlContent(RenderFragmentInitializationScripts(htmlHelper), RenderFragmentDynamicScriptsContainer(htmlHelper));
 
-        public static IHtmlContent RenderInitializationScripts()
+        public static IHtmlContent RenderFragmentInitializationScripts(this IHtmlHelper htmlHelper)
         {
             // todo: add min file and split behavior on development
-            var assembly = typeof(HtmlHelper).Assembly;
-            var embeddedFileProvider = new EmbeddedFileProvider(
-                assembly,
-                $"{assembly.GetName().Name}.content"
-            );
 
-            var fileInfo = embeddedFileProvider.GetFileInfo("core.js");
-            using var fileStream = new MemoryStream();
-            fileInfo.CreateReadStream().CopyTo(fileStream);
+            var fileInfo = App.ContentProvider.GetFileInfo("core.js");
+            var version = fileInfo.GenerateHash();
 
-            var fileData = fileStream.ToArray();
-            var hash = MD5.Create().ComputeHash(fileData);
-            
-            var version = Convert.ToBase64String(hash);
             var builder = new HtmlContentBuilder();
             builder.AppendHtmlLine($"<script src='/fragment/core.js?v=${version}'></script>");
 
             return builder;
         }
 
-        public static IHtmlContent RenderDynamicScriptsContainer()
+        public static IHtmlContent RenderFragmentDynamicScriptsContainer(this IHtmlHelper htmlHelper)
         {
             var builder = new HtmlContentBuilder();
             builder.AppendHtmlLine($"<div id='fragment-dynamic-scripts'></div>");
@@ -59,6 +47,5 @@ namespace Fragment
                     htmlContent.WriteTo(writer, encoder);
             }
         }
-
     }
 }

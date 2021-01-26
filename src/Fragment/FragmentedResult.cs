@@ -1,38 +1,26 @@
-﻿using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Controllers;
-using Microsoft.AspNetCore.Mvc.Rendering;
-using Microsoft.AspNetCore.Mvc.ViewEngines;
-using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Net.Http.Headers;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text.Json;
+using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace Fragment
 {
     public class FragmentedResult : IActionResult
     {
-        private static readonly JsonSerializerOptions _jsonSerializerOptions = new JsonSerializerOptions { IgnoreNullValues = true };
-
-        private static readonly HashSet<ContentPositions> _contentPositionsWithoutBody =
-            new HashSet<ContentPositions> { ContentPositions.RemoveElement, ContentPositions.RemoveContent };
-
-        private readonly Controller _controller;
         private readonly bool _navigateToPage;
-        private readonly IEnumerable<IFragment> _fragments;
+        private readonly IEnumerable<IActionResult> _fragments;
 
-        public FragmentedResult(params IFragment[] viewFragments) : this(null, viewFragments) { }
+        public FragmentedResult(params IActionResult[] fragments) : this(false, fragments) { }
 
-        public FragmentedResult(Controller controller, params IFragment[] viewFragments) : this(controller, false, viewFragments) { }
-
-        public FragmentedResult(Controller controller, bool navigateToPage, params IFragment[] fragments)
+        public FragmentedResult(bool navigateToPage, params IActionResult[] fragments)
         {
-            _controller = controller;
             _navigateToPage = navigateToPage;
             _fragments = fragments ?? throw new ArgumentNullException(nameof(fragments));
         }
@@ -44,112 +32,44 @@ namespace Fragment
             if (!context.HttpContext.Request.Headers.Any(x => x.Key == "X-Requested-With" && x.Value == "XMLHttpRequest"))
                 throw new InvalidOperationException($"{nameof(FragmentedResult)} responses can only be returned for requests made with XMLHttpRequest");
 
+            var boundary = Guid.NewGuid().ToString();
+            context.HttpContext.Response.Headers.Add(HeaderNames.ContentType, $"multipart/byteranges; boundary={boundary}");
+
             if (_navigateToPage)
             {
-                var setUrl = string.Concat(
-                        _controller.Request.Scheme,
-                        "://",
-                        _controller.Request.Host.ToUriComponent(),
-                        _controller.Request.PathBase.ToUriComponent(),
-                        _controller.Request.Path.ToUriComponent(),
-                        _controller.Request.QueryString.ToUriComponent());
-
+                var setUrl = context.HttpContext.Request.GetUrl();
                 context.HttpContext.Response.Headers.Add("X-Fragment-Url", setUrl);
             }
 
-            var body = context.HttpContext.Response.Body;
+            var multipartFeatureCollection = new FeatureCollection();
+            foreach (var feature in context.HttpContext.Features)
+                multipartFeatureCollection[feature.Key] = feature.Value;
 
-            var defaultControllerFactory = new Lazy<Controller>(() => (Controller)context.HttpContext.RequestServices
-                .GetRequiredService<IControllerFactory>()
-                .CreateController(new ControllerContext(context)), false);
+            var multipartContent = new MultipartContent("byteranges", boundary);
 
-            var multipartResult = new MultipartResult();
-            var viewEngineFactory = new Lazy<ICompositeViewEngine>(() => 
-            context.HttpContext.RequestServices.GetRequiredService<ICompositeViewEngine>(), false);
-            var webHostingEnvironmentFactory = new Lazy<IWebHostEnvironment>(() => 
-                context.HttpContext.RequestServices.GetRequiredService<IWebHostEnvironment>(), false);
-
-            foreach (var fragment in _fragments)
+            foreach(var fragment in _fragments)
             {
-                var headers = new HttpHeadersCollection();
+                multipartFeatureCollection[typeof(IHttpResponseFeature)] = new HttpResponseFeature();
+                multipartFeatureCollection[typeof(IHttpResponseBodyFeature)] = new StreamResponseBodyFeature(new MemoryStream());
 
-                if (fragment.ContentType == "text/html")
-                {
-                    if (fragment.Selector != null)
-                        headers.Add("X-Fragment-Selector", fragment.Selector);
+                var multipartHttpContext = context.HttpContext.RequestServices
+                    .GetRequiredService<IHttpContextFactory>().Create(multipartFeatureCollection);
 
-                    if (fragment.ContentPosition != null)
-                        headers.Add("X-Fragment-ContentPosition", Enum.GetName(typeof(ContentPositions), fragment.ContentPosition));
+                var multipartActionContext = new ActionContext(multipartHttpContext, context.RouteData, context.ActionDescriptor, context.ModelState);
 
-                    if (fragment.Delay != null)
-                        headers.Add("X-Fragment-Delay", fragment.Delay.ToString());
-                }
+                await fragment.ExecuteResultAsync(multipartActionContext);
 
-                if (fragment.ContentPosition.HasValue
-                    && _contentPositionsWithoutBody.Contains(fragment.ContentPosition.Value))
-                {
-                    multipartResult.Add(new MultipartContent(fragment.ContentType, new MemoryStream(), headers));
-                    continue;
-                }
-
-                if (fragment.Content != null)
-                {
-                    multipartResult.Add(new MultipartContent(fragment.ContentType, fragment.Content, headers));
-                    continue;
-                }
-
-                if (fragment.FilePath != null)
-                {
-                    var content = webHostingEnvironmentFactory.Value
-                        .WebRootFileProvider.GetFileInfo(fragment.FilePath).CreateReadStream();
-                    
-                    multipartResult.Add(new MultipartContent(fragment.ContentType, content, headers));
-                    continue;
-                }
-
-                var controller = fragment.Controller ?? _controller ?? defaultControllerFactory.Value;
-                var viewStream = await CreateViewStream(controller, viewEngineFactory.Value, fragment.ViewName, fragment.Model, _navigateToPage);
-                
-                multipartResult.Add(new MultipartContent(fragment.ContentType, viewStream, headers));
+                var body = multipartHttpContext.Response.Body;
+                body.Seek(0, SeekOrigin.Begin);
+                var bodyContent = new StreamContent(multipartHttpContext.Response.Body);
+                foreach (var header in multipartHttpContext.Response.Headers)
+                    bodyContent.Headers.Add(header.Key, (IEnumerable<string>)header.Value);
+                multipartContent.Add(bodyContent);
             }
 
-            context.HttpContext.Response.StatusCode = StatusCodes.Status200OK;
-            context.HttpContext.Response.Body = body;
-            await multipartResult.ExecuteResultAsync(context);
+            var multipartStream = await multipartContent.ReadAsStreamAsync();
 
-            foreach (var multipartContent in multipartResult)
-                multipartContent.Stream.Dispose();
-        }
-
-        private static async Task<Stream> CreateViewStream(Controller controller, ICompositeViewEngine viewEngine, string viewName, object model, bool isMainPage)
-        {
-            if (string.IsNullOrEmpty(viewName))
-                viewName = controller.ControllerContext.ActionDescriptor.ActionName;
-            
-            controller.ViewData.Model = model;
-            var viewResult = viewEngine.FindView(controller.ControllerContext, viewName, isMainPage);
-
-            if (viewResult.Success == false) throw new InvalidOperationException($"A view with the name {viewName} could not be found");
-
-            var stream = new MemoryStream();
-            var writer = new StreamWriter(stream);
-
-            var viewContext = new ViewContext(
-                controller.ControllerContext,
-                viewResult.View,
-                controller.ViewData,
-                controller.TempData,
-                writer,
-                new HtmlHelperOptions()
-            );
-
-            await viewResult.View.RenderAsync(viewContext);
-
-            writer.Flush();
-            stream.Seek(0, SeekOrigin.Begin);
-            controller.ViewData.Model = null;
-
-            return stream;
+            await multipartStream.CopyToAsync(context.HttpContext.Response.Body);
         }
     }
 }

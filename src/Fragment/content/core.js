@@ -102,7 +102,7 @@ window['fragment'] = {
             var type = contentTypeSegments[0];
             if (type !== 'multipart/byteranges')
                 return config.onError("Invalid content type '" + contentType + "'. Expected 'multipart/byteranges'");
-            var boundary = contentTypeSegments[2].slice(1, -1);
+            var boundary = contentTypeSegments[2].replace('"', '');
             var parts = parseMultipartBody(xhttp.responseText, boundary);
             var fragmentData = parts.map(function (x) {
                 return {

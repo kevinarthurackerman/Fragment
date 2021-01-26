@@ -1,6 +1,5 @@
 ﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.FileProviders;
 using System;
 
 namespace Fragment
@@ -11,16 +10,9 @@ namespace Fragment
         {
             if (applicationBuilder == null) throw new ArgumentNullException(nameof(applicationBuilder));
 
-            var assembly = typeof(ApplicationBuilderExtensions).Assembly;
-
-            var embeddedFileProvider = new EmbeddedFileProvider(
-                assembly,
-                $"{assembly.GetName().Name}.content"
-            );
-
             applicationBuilder.UseStaticFiles(new StaticFileOptions
             {
-                FileProvider = embeddedFileProvider,
+                FileProvider = App.ContentProvider,
                 RequestPath = new PathString("/fragment")
             });
 

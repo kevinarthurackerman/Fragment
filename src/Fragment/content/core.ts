@@ -150,7 +150,7 @@ window['fragment'] = {
             if (type !== 'multipart/byteranges')
                 return config.onError(`Invalid content type '${contentType}'. Expected 'multipart/byteranges'`);
 
-            const boundary = contentTypeSegments[2].slice(1, -1);
+            const boundary = contentTypeSegments[2].replace('"', '');
 
             const parts = parseMultipartBody(xhttp.responseText, boundary);
 
