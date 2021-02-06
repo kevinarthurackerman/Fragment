@@ -75,6 +75,9 @@ window['fragment'] = {
             document.body.append(scriptTag);
             scriptTag.remove();
         }
+        else {
+            config.onError("Cannot handler content type '" + fragment.contentType + "'.");
+        }
     }
     function scheduleInsertFragment(fragment) {
         if (fragment.delay > 0) {

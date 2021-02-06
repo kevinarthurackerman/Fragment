@@ -1,13 +1,24 @@
-﻿interface FragmentConfiguration {
+﻿interface OnBeforeRequestEvent {
+    triggeringEvent: Event;
+}
+
+interface OnAfterRequestEvent {
+    triggeringEvent: Event;
+    success: boolean;
+}
+
+interface FragmentConfiguration {
     idAttribute: string;
     onBeforeRequest: (event: OnBeforeRequestEvent) => void;
     onAfterRequest: (event: OnAfterRequestEvent) => void;
     onError(message: string);
 }
 
+type ContentPositions = 'RemoveElement' | 'ReplaceElement' | 'BeforeElement' | 'AfterElement' | 'RemoveContent' | 'ReplaceContent' | 'BeforeContent' | 'AfterContent';
+
 interface FragmentInfo {
     selector: string;
-    position: 'RemoveElement' | 'ReplaceElement' | 'BeforeElement' | 'AfterElement' | 'RemoveContent' | 'ReplaceContent' | 'BeforeContent' | 'AfterContent';
+    position: ContentPositions;
     delay: number;
     contentType: 'text/html' | 'text/javascript';
     content: string;
@@ -21,15 +32,6 @@ interface Headers {
 interface MultipartBodyPart {
     body: string;
     headers: Headers;
-}
-
-interface OnBeforeRequestEvent {
-    triggeringEvent: Event;
-}
-
-interface OnAfterRequestEvent {
-    triggeringEvent: Event;
-    success: boolean;
 }
 
 window['fragment'] = {
@@ -112,6 +114,8 @@ window['fragment'] = {
             scriptTag.innerHTML = fragment.content;
             document.body.append(scriptTag);
             scriptTag.remove();
+        } else {
+            config.onError(`Cannot handler content type '${fragment.contentType}'.`);
         }
     }
 
