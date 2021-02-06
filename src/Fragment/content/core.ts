@@ -20,7 +20,7 @@ interface FragmentInfo {
     selector: string;
     position: ContentPositions;
     delay: number;
-    contentType: 'text/html' | 'text/javascript';
+    contentType: string;
     content: string;
 }
 
@@ -70,7 +70,7 @@ window['fragment'] = {
     }
 
     function insertFragment(fragment: FragmentInfo): void {
-        if (fragment.contentType === 'text/html') {
+        if (fragment.contentType.lastIndexOf('text/html', 0) === 0) {
             if (fragment.selector === 'document' || !fragment.selector) {
                 document.open();
                 document.write(fragment.content);
@@ -139,6 +139,7 @@ window['fragment'] = {
         const xhttp = new XMLHttpRequest();
         xhttp.open('GET', url, true);
         xhttp.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhttp.setRequestHeader('X-Fragmented', 'true');
         xhttp.addEventListener('load', () => {
             if (xhttp.status !== 200) {
                 document.write(xhttp.responseText);

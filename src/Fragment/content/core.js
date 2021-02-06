@@ -30,7 +30,7 @@ window['fragment'] = {
         return document.importNode(contentTemplate.content, true);
     }
     function insertFragment(fragment) {
-        if (fragment.contentType === 'text/html') {
+        if (fragment.contentType.lastIndexOf('text/html', 0) === 0) {
             if (fragment.selector === 'document' || !fragment.selector) {
                 document.open();
                 document.write(fragment.content);
@@ -94,6 +94,7 @@ window['fragment'] = {
         var xhttp = new XMLHttpRequest();
         xhttp.open('GET', url, true);
         xhttp.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+        xhttp.setRequestHeader('X-Fragmented', 'true');
         xhttp.addEventListener('load', function () {
             if (xhttp.status !== 200) {
                 document.write(xhttp.responseText);

@@ -71,7 +71,7 @@ namespace Fragment
             ((IViewContextAware)htmlHelper).Contextualize(viewContext);
             htmlHelper.ViewData.Model = Model;
 
-            await htmlHelper.RenderPartialAsync(ViewName, Model, htmlHelper.ViewData);
+            await htmlHelper.RenderPartialAsync(viewName, Model, htmlHelper.ViewData);
             writer.Flush();
         }
     }

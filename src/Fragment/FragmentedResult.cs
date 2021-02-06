@@ -6,39 +6,37 @@ using Microsoft.Net.Http.Headers;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 
 namespace Fragment
 {
-    public class FragmentedResult : IActionResult
+    public partial class FragmentedResult : IActionResult
     {
-        private readonly bool _navigateToPage;
-        private readonly IEnumerable<IActionResult> _fragments;
-
-        public FragmentedResult(params IActionResult[] fragments) : this(false, fragments) { }
-
-        public FragmentedResult(bool navigateToPage, params IActionResult[] fragments)
-        {
-            _navigateToPage = navigateToPage;
-            _fragments = fragments ?? throw new ArgumentNullException(nameof(fragments));
-        }
+        public Uri PageUri { get; set; }
+        public IActionResult PageFragment { get; set; }
+        public IList<IActionResult> ViewFragments { get; } = new List<IActionResult>();
 
         public async Task ExecuteResultAsync(ActionContext context)
         {
             if (context == null) throw new ArgumentNullException(nameof(context));
-            // todo: detect when request is not ajax and return a single content for page navigation instead
-            if (!context.HttpContext.Request.Headers.Any(x => x.Key == "X-Requested-With" && x.Value == "XMLHttpRequest"))
-                throw new InvalidOperationException($"{nameof(FragmentedResult)} responses can only be returned for requests made with XMLHttpRequest");
 
+            if (!context.HttpContext.Request.IsFragmentedRequest())
+            {
+                await PageFragment.ExecuteResultAsync(context);
+                return;
+            }
+            
             var boundary = Guid.NewGuid().ToString();
             context.HttpContext.Response.Headers.Add(HeaderNames.ContentType, $"multipart/byteranges; boundary={boundary}");
 
-            if (_navigateToPage)
+            if (PageUri != default)
             {
-                var setUrl = context.HttpContext.Request.GetUrl();
-                context.HttpContext.Response.Headers.Add("X-Fragment-Url", setUrl);
+                var pageUri = PageUri.IsAbsoluteUri
+                    ? PageUri
+                    : new Uri(new Uri(context.HttpContext.Request.GetUrl()), PageUri.ToString());
+
+                context.HttpContext.Response.Headers.Add("X-Fragment-Url", pageUri.AbsoluteUri);
             }
 
             var multipartFeatureCollection = new FeatureCollection();
@@ -47,7 +45,7 @@ namespace Fragment
 
             var multipartContent = new MultipartContent("byteranges", boundary);
 
-            foreach(var fragment in _fragments)
+            foreach(var fragment in ViewFragments)
             {
                 multipartFeatureCollection[typeof(IHttpResponseFeature)] = new HttpResponseFeature();
                 multipartFeatureCollection[typeof(IHttpResponseBodyFeature)] = new StreamResponseBodyFeature(new MemoryStream());
